@@ -1,0 +1,24 @@
+[project]
+name = "tgbot_storyrepost"
+version = "0.1.0"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "aiogram>=3.15.0",
+    "aiosqlite>=0.20.0",
+    "python-dotenv>=1.0.0",
+    "instagrapi>=2.1.0",
+    # Этап 2: генерация превью
+    # ffmpeg вызывается через subprocess, не нужен pip-пакет
+    # Этап 4: VK
+    "vk-api>=11.9.9",
+]
+
+[project.scripts]
+bot = "bot.main:main"
+
+[dependency-groups]
+dev = ["ruff"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
