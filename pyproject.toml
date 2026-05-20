@@ -8,10 +8,7 @@ dependencies = [
     "aiosqlite>=0.20.0",
     "python-dotenv>=1.0.0",
     "instagrapi>=2.1.0",
-    # Этап 2: генерация превью
-    # ffmpeg вызывается через subprocess, не нужен pip-пакет
-    # Этап 4: VK
-    "vk-api>=11.9.9",
+    "httpx>=0.28.1",
 ]
 
 [project.scripts]

@@ -25,7 +25,6 @@ async def cmd_sync_stories(message: Message, config: Config):
             await message.answer("📭 У вас сейчас нет активных историй в профиле.")
             return
 
-        # Считаем результаты для отчета пользователю
         new_count = sum(1 for s in stories_report if s["status"] == "new_downloaded")
         skipped_count = sum(
             1 for s in stories_report if s["status"] == "already_downloaded"

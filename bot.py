@@ -8,7 +8,7 @@ from aiogram.methods import DeleteWebhook
 
 from config import load_config
 from database.db import close_db, init_db
-from handlers import ig_auth, ig_stories
+from handlers import ig_auth, ig_stories, ig_stories_select
 from services.middleware import OwnerOnlyMiddleware
 
 logger = logging.getLogger(__name__)
@@ -31,6 +31,7 @@ async def main() -> None:
     dp.message.middleware(OwnerOnlyMiddleware())
     dp.include_router(ig_auth.router)
     dp.include_router(ig_stories.router)
+    dp.include_router(ig_stories_select.router)
 
     try:
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())

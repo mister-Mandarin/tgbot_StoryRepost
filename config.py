@@ -28,7 +28,6 @@ class Config:
     sessions_dir: Path
     db_path: Path
     stories_dir: Path
-    thumbs_dir: Path
 
     # Instagram
     ig_username: str
@@ -52,18 +51,16 @@ def load_config() -> Config:
         sessions_dir=data_dir / "sessions",
         db_path=Path(data_dir / "db.sqlite3"),
         stories_dir=data_dir / "stories",
-        thumbs_dir=data_dir / "thumbs",
         # Instagram
         ig_username=_require("IG_USERNAME"),
         ig_password=_require("IG_PASSWORD"),
         # VK
-        # vk_user_token=_require("VK_USER_TOKEN"),
+        vk_user_token=_require("VK_USER_TOKEN"),
     )
 
     # Создаём директории при необходимости
     cfg.data_dir.mkdir(parents=True, exist_ok=True)
     cfg.sessions_dir.mkdir(parents=True, exist_ok=True)
     cfg.stories_dir.mkdir(parents=True, exist_ok=True)
-    cfg.thumbs_dir.mkdir(parents=True, exist_ok=True)
 
     return cfg

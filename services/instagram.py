@@ -1,9 +1,14 @@
-import json
+import asyncio
+import logging
+from datetime import timedelta
+from pathlib import Path
 
 from instagrapi import Client
 
 from config import Config
+from database.queries import insert_story
 
+logger = logging.getLogger(__name__)
 cl = Client()
 
 
@@ -13,10 +18,9 @@ def login(config: Config, verification_code: str = ""):
     if session_file.exists():
         try:
             cl.load_settings(session_file)
-            # Проверяем, работает ли загруженная сессия
-            cl.get_timeline_feed()
-            print("Сессия успешно загружена из файла, повторный логин не требуется.")
-            return  # Выходим, всё готово
+            if cl.user_id:
+                print("Сессия успешно загружена из файла, повторный логин не требуется.")
+                return  # Выходим, всё готово
         except Exception:
             print("Старая сессия недействительна, выполняем вход по паролю...")
             # Если сессия устарела — сбрасываем настройки перед новым логином
@@ -35,65 +39,68 @@ def login(config: Config, verification_code: str = ""):
 
 
 def get_and_download_my_stories(config: Config) -> list[dict]:
-
-    # апрашиваем список своих активных историй
     stories = cl.user_stories(str(cl.user_id))
 
-    saved_stories_info = []
+    result = []
 
     for story in stories:
-        # Уникальный первичный ключ истории
-        story_id = story.pk
+        pk = str(story.pk)
+        media_type = story.media_type
+        taken_at = story.taken_at
+        expires_at = taken_at + timedelta(hours=24)
 
-        # Формируем базовое имя файла на основе ID истории
-        base_filename = f"story_{story_id}"
-        json_path = config.stories_dir / f"{base_filename}.json"
-
-        # Собираем максимум метаданных, включая ссылки на превью
-        # instagrapi отдает сущности в виде Pydantic-моделей или объектов, переводим в dict
-        metadata = {
-            "id": story.id,
-            "pk": story.pk,
-            "code": story.code,
-            "taken_at": str(story.taken_at),  # Время публикации
-            "media_type": story.media_type,  # 1 — фото, 2 — видео
-            "product_type": story.product_type,
-            "thumbnail_url": str(story.thumbnail_url) if story.thumbnail_url else None,
-            # Видео содержит список доступных версий превью разного качества
-            # "video_dash_manifest": story.video_dash_manifest
-            # if hasattr(story, "video_dash_manifest")
-            # else None,
-            "video_duration": story.video_duration
-            if hasattr(story, "video_duration")
-            else 0,
-            "mentions": [m.user.username for m in story.mentions]
-            if story.mentions
-            else [],
-            "medias": [str(url) for url in story.medias] if story.medias else [],
-        }
-
-        # 3. Проверка на дубликаты: если JSON уже есть, значит история скачана
-        if json_path.exists():
-            metadata["status"] = "already_downloaded"
-            saved_stories_info.append(metadata)
-            continue  # Пропускаем скачивание самого медиафайла
-
-        if story.media_type == 2 and story.video_url:
-            cl.story_download_by_url(
-                url=str(story.video_url),
-                filename=base_filename,
-                folder=config.stories_dir,
-            )
+        # Пути к файлам
+        thumb_path = config.stories_dir / f"story_{pk}_thumb.jpg"
+        if media_type == 2:
+            local_path = config.stories_dir / f"story_{pk}.mp4"
         else:
-            cl.story_download(
-                story_pk=story.pk, filename=base_filename, folder=config.stories_dir
+            local_path = config.stories_dir / f"story_{pk}.jpg"
+
+        # Проверка дубликата по наличию файла
+        if local_path.exists():
+            result.append(
+                {
+                    "pk": pk,
+                    "status": "already_downloaded",
+                    "local_path": str(local_path),
+                }
             )
+            continue
 
-        # 5. Сохраняем метаданные в JSON файл рядом с картинкой/видео
-        with open(json_path, "w", encoding="utf-8") as f:
-            json.dump(metadata, f, ensure_ascii=False, indent=4)
+        _download_file(str(story.thumbnail_url), thumb_path, is_video=False)
+        if media_type == 2 and story.video_url:
+            _download_file(str(story.video_url), local_path, is_video=True)
+        else:
+            local_path = thumb_path
 
-        metadata["status"] = "new_downloaded"
-        saved_stories_info.append(metadata)
+        # Пишем в БД
+        asyncio.run(
+            insert_story(
+                {
+                    "pk": pk,
+                    "media_type": media_type,
+                    "taken_at": str(taken_at),
+                    "expires_at": str(expires_at),
+                    "thumb_path": str(thumb_path),
+                    "local_path": str(local_path),
+                },
+            )
+        )
 
-    return saved_stories_info
+        result.append(
+            {
+                "pk": pk,
+                "status": "new_downloaded",
+                "local_path": str(local_path),
+            }
+        )
+
+    return result
+
+
+def _download_file(url: str, dest: Path, is_video: bool) -> None:
+    """Скачивает файл по URL в зависимости от его типа."""
+    if is_video:
+        cl.video_download_by_url(url, dest.stem, dest.parent)
+    else:
+        cl.photo_download_by_url(url, dest.stem, dest.parent)
