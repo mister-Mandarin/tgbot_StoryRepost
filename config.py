@@ -34,7 +34,9 @@ class Config:
     ig_password: str
 
     # VK
-    vk_user_token: str = ""
+    vk_user_token: str
+    vk_api_url: str
+    vk_api_version: float
 
 
 def load_config() -> Config:
@@ -56,6 +58,8 @@ def load_config() -> Config:
         ig_password=_require("IG_PASSWORD"),
         # VK
         vk_user_token=_require("VK_USER_TOKEN"),
+        vk_api_url="https://api.vk.ru",
+        vk_api_version=5.199,
     )
 
     # Создаём директории при необходимости
@@ -64,3 +68,6 @@ def load_config() -> Config:
     cfg.stories_dir.mkdir(parents=True, exist_ok=True)
 
     return cfg
+
+
+app_config = load_config()

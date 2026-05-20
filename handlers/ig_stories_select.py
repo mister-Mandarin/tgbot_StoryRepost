@@ -1,69 +1,20 @@
 from pathlib import Path
 
 from aiogram import F, Router
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, FSInputFile, InlineKeyboardButton, Message
-from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.types import CallbackQuery, FSInputFile, Message
 
 from database.queries import get_not_published_stories
+from handlers.vk_stories_publish import vk_publish_stories
+from keyboards.ig_stories_check import keyboard_ig_get_story
 from services.state import StoryAction, StoryModeration
 
 router = Router(name="ig_stories_select")
 
 
-def get_story_keyboard(stories: list, current_index: int, selected_ids: set):
-    """Генерирует клавиатуру для текущей истории."""
-    builder = InlineKeyboardBuilder()
-    story = stories[current_index]
-    story_id = str(story["pk"])
-
-    # 1. Кнопка-тоггл ✅/◻️
-    is_chosen = story_id in selected_ids
-    status_emoji = "✅ Выбрано" if is_chosen else "◻️ Отобрать"
-    builder.button(
-        text=status_emoji, callback_data=StoryAction(action="toggle", story_id=story_id)
-    )
-
-    # 2. Кнопки навигации (Назад / Вперед)
-    nav_buttons = []
-    if current_index > 0:
-        nav_buttons.append(
-            builder.button(
-                text="⬅️ Пред.",
-                callback_data=StoryAction(action="prev", story_id=story_id),
-            )
-        )
-    if current_index < len(stories) - 1:
-        nav_buttons.append(
-            builder.button(
-                text="След. ➡️",
-                callback_data=StoryAction(action="next", story_id=story_id),
-            )
-        )
-
-    # Корректно разбиваем ряды
-    builder.adjust(1, len(nav_buttons), 2)
-
-    # 3. Системные кнопки (публикация, отмена) — добавляем внизу
-    builder.row(
-        InlineKeyboardButton(
-            text="🚀 Опубликовать выбранные",
-            callback_data=StoryAction(action="pub_selected", story_id="0").pack(),
-        ),
-        InlineKeyboardButton(
-            text="🔥 Все",
-            callback_data=StoryAction(action="pub_all", story_id="0").pack(),
-        ),
-        InlineKeyboardButton(
-            text="❌ Отмена",
-            callback_data=StoryAction(action="cancel", story_id="0").pack(),
-        ),
-    )
-    return builder.as_markup()
-
-
 # --- ТРИГГЕР: Кнопка «Получить истории» ---
-@router.message(F.text == "Получить истории")
+@router.message(Command("ig_get_stories"))
 async def start_moderation(message: Message, state: FSMContext):
     # ТУТ вызывается ваш метод скачивания из Instagram (Этап 2)
     # await download_new_stories()
@@ -76,7 +27,7 @@ async def start_moderation(message: Message, state: FSMContext):
 
     # Инициализируем данные в FSM
     await state.set_state(StoryModeration.viewing)
-    await state.update_data(stories=stories, current_index=0, selected_ids=set())
+    await state.update_data(stories=stories, current_index=0, selected_ids=list())
 
     first_story = stories[0]
     photo = FSInputFile(Path(first_story["thumb_path"]))
@@ -84,7 +35,7 @@ async def start_moderation(message: Message, state: FSMContext):
     await message.answer_photo(
         photo=photo,
         caption=f"История 1 из {len(stories)}\nТип: {'Видео' if first_story['media_type'] == 2 else 'Фото'}",
-        reply_markup=get_story_keyboard(stories, 0, set()),
+        reply_markup=keyboard_ig_get_story(stories, 0, set()),
     )
 
 
@@ -96,6 +47,9 @@ async def start_moderation(message: Message, state: FSMContext):
 async def navigate_stories(
     callback: CallbackQuery, callback_data: StoryAction, state: FSMContext
 ):
+    if not isinstance(callback.message, Message):
+        return
+
     data = await state.get_data()
     stories = data["stories"]
     current_index = data["current_index"]
@@ -108,7 +62,7 @@ async def navigate_stories(
         if story_id in selected_ids:
             selected_ids.remove(story_id)
         else:
-            selected_ids.add(story_id)
+            selected_ids.append(story_id)
         await state.update_data(selected_ids=selected_ids)
 
     elif action == "next":
@@ -131,7 +85,7 @@ async def navigate_stories(
             media=photo,
             caption=f"История {current_index + 1} из {len(stories)}\nТип: {'Видео' if story['media_type'] == 2 else 'Фото'}",
         ),
-        reply_markup=get_story_keyboard(stories, current_index, selected_ids),
+        reply_markup=keyboard_ig_get_story(stories, current_index, selected_ids),
     )
     await callback.answer()
 
@@ -144,6 +98,9 @@ async def navigate_stories(
 async def finish_moderation(
     callback: CallbackQuery, callback_data: StoryAction, state: FSMContext
 ):
+    if not isinstance(callback.message, Message):
+        return
+
     data = await state.get_data()
     action = callback_data.action
 
@@ -161,9 +118,11 @@ async def finish_moderation(
     if action == "pub_all":
         to_publish = stories
     elif action == "pub_selected":
-        for story in stories:
-            if str(story["pk"]) in selected_ids:
-                to_publish.append(story)
+        for chosen_id in selected_ids:
+            for story in stories:
+                if str(story["pk"]) == chosen_id:
+                    to_publish.append(story)
+                    break
 
     if not to_publish:
         await callback.answer("Ничего не выбрано!", show_alert=True)
@@ -175,9 +134,7 @@ async def finish_moderation(
     await callback.message.answer("⏳ Публикация в процессе...")
 
     try:
-        # ТУТ будет ваш вызов функции публикации (например, отправка в Telegram-канал)
-        # for story in to_publish:
-        #     await publish_to_channel(story)
+        await vk_publish_stories(to_publish, state, callback)
 
         # Обновляем статусное сообщение на успех
         await callback.message.answer(

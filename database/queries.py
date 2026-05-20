@@ -57,3 +57,16 @@ async def mark_published(pk: str, vk_story_id: str) -> None:
         (vk_story_id, pk),
     )
     await connection.commit()
+
+
+async def mark_story_as_published(pk: str) -> None:
+    connection = await get_db()
+    await connection.execute(
+        """
+            UPDATE stories
+            SET published_at = datetime('now')
+            WHERE pk = ?
+        """,
+        (pk,),
+    )
+    await connection.commit()
